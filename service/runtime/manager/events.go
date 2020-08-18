@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/micro/go-micro/v3/events"
 	gorun "github.com/micro/go-micro/v3/runtime"
 	gostore "github.com/micro/go-micro/v3/store"
 	"github.com/micro/micro/v3/internal/namespace"
@@ -31,19 +30,12 @@ const (
 )
 
 // publishEvent will write the event to the global store and immediately process the event
-func (m *manager) publishEvent(eType string, srv *gorun.Service, opts *gorun.CreateOptions) error {
-	payload, err := json.Marshal(gorun.EventPayload{
+func (m *manager) publishEvent(eType gorun.EventType, srv *gorun.Service, opts *gorun.CreateOptions) error {
+	e := &gorun.Event{
+		ID:      uuid.New().String(),
+		Type:    eType,
 		Service: srv,
 		Options: opts,
-	})
-	if err != nil {
-		return err
-	}
-
-	e := &events.Event{
-		ID:      uuid.New().String(),
-		Topic:   eType,
-		Payload: payload,
 	}
 
 	bytes, err := json.Marshal(e)
@@ -103,49 +95,41 @@ func (m *manager) processEvent(key string) {
 		logger.Warnf("Error finding event %v: %v", key, err)
 		return
 	}
-
-	var ev *events.Event
+	var ev *gorun.Event
 	if err := json.Unmarshal(recs[0].Value, &ev); err != nil {
 		logger.Warnf("Error unmarshaling event %v: %v", key, err)
-		return
-	}
-
-	var payload gorun.EventPayload
-	if err := ev.Unmarshal(&payload); err != nil {
-		logger.Warnf("Error unmarshaling event payload %v: %v", key, err)
-		return
 	}
 
 	// determine the namespace
 	ns := namespace.DefaultNamespace
-	if payload.Options != nil && len(payload.Options.Namespace) > 0 {
-		ns = payload.Options.Namespace
+	if ev.Options != nil && len(ev.Options.Namespace) > 0 {
+		ns = ev.Options.Namespace
 	}
 
 	// log the event
-	logger.Infof("Processing %v event for service %v:%v in namespace %v", ev.Topic, payload.Service.Name, payload.Service.Version, ns)
+	logger.Infof("Processing %v event for service %v:%v in namespace %v", ev.Type, ev.Service.Name, ev.Service.Version, ns)
 
 	// apply the event to the managed runtime
-	switch ev.Topic {
-	case gorun.DeletedEvent:
-		err = runtime.Delete(payload.Service, gorun.DeleteNamespace(ns))
-	case gorun.UpdatedEvent:
-		err = runtime.Update(payload.Service, gorun.UpdateNamespace(ns))
-	case gorun.CreatedEvent:
+	switch ev.Type {
+	case gorun.Delete:
+		err = runtime.Delete(ev.Service, gorun.DeleteNamespace(ns))
+	case gorun.Update:
+		err = runtime.Update(ev.Service, gorun.UpdateNamespace(ns))
+	case gorun.Create:
 		// generate an auth account for the service to use
-		acc, err := m.generateAccount(payload.Service, ns)
+		acc, err := m.generateAccount(ev.Service, ns)
 		if err != nil {
 			return
 		}
 
 		// construct the options
 		options := []gorun.CreateOption{
-			gorun.CreateImage(payload.Options.Image),
-			gorun.CreateType(payload.Options.Type),
+			gorun.CreateImage(ev.Options.Image),
+			gorun.CreateType(ev.Options.Type),
 			gorun.CreateNamespace(ns),
-			gorun.WithArgs(payload.Options.Args...),
-			gorun.WithCommand(payload.Options.Command...),
-			gorun.WithEnv(m.runtimeEnv(payload.Service, payload.Options)),
+			gorun.WithArgs(ev.Options.Args...),
+			gorun.WithCommand(ev.Options.Command...),
+			gorun.WithEnv(m.runtimeEnv(ev.Service, ev.Options)),
 		}
 
 		// inject the credentials into the service if present
@@ -155,21 +139,21 @@ func (m *manager) processEvent(key string) {
 		}
 
 		// add the secrets
-		for key, value := range payload.Options.Secrets {
+		for key, value := range ev.Options.Secrets {
 			options = append(options, gorun.WithSecret(key, value))
 		}
 
 		// create the service
-		err = runtime.Create(payload.Service, options...)
+		err = runtime.Create(ev.Service, options...)
 	}
 
 	// if there was an error update the status in the cache
 	if err != nil {
-		logger.Warnf("Error processing %v event for service %v:%v in namespace %v: %v", ev.Topic, payload.Service.Name, payload.Service.Version, ns, err)
-		payload.Service.Metadata = map[string]string{"status": "error", "error": err.Error()}
-		m.cacheStatus(ns, payload.Service)
-	} else if ev.Topic != gorun.DeletedEvent {
-		m.cacheStatus(ns, payload.Service)
+		logger.Warnf("Error processing %v event for service %v:%v in namespace %v: %v", ev.Type, ev.Service.Name, ev.Service.Version, ns, err)
+		ev.Service.Metadata = map[string]string{"status": "error", "error": err.Error()}
+		m.cacheStatus(ns, ev.Service)
+	} else if ev.Type != gorun.Delete {
+		m.cacheStatus(ns, ev.Service)
 	}
 
 	// write to the store indicating the event has been consumed. We double the ttl to safely know the

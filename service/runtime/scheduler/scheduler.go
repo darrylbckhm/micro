@@ -2,14 +2,12 @@
 package scheduler
 
 import (
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/micro/go-micro/v3/events"
 	"github.com/micro/go-micro/v3/runtime"
 	log "github.com/micro/micro/v3/service/logger"
 )
@@ -23,7 +21,7 @@ type scheduler struct {
 	sync.Mutex
 
 	fsnotify *fsnotify.Watcher
-	notify   chan events.Event
+	notify   chan runtime.Event
 	update   chan fsnotify.Event
 	exit     chan bool
 }
@@ -34,15 +32,11 @@ func (n *scheduler) run() {
 		case <-n.exit:
 			return
 		case <-n.update:
-			payload, _ := json.Marshal(&runtime.EventPayload{
-				Service: &runtime.Service{Name: n.service},
-			})
-
 			select {
-			case n.notify <- events.Event{
-				Topic:     runtime.UpdatedEvent,
+			case n.notify <- runtime.Event{
+				Type:      runtime.Update,
 				Timestamp: time.Now(),
-				Payload:   payload,
+				Service:   &runtime.Service{Name: n.service},
 			}:
 			default:
 				// bail out
@@ -61,7 +55,7 @@ func (n *scheduler) run() {
 	}
 }
 
-func (n *scheduler) Notify() (<-chan events.Event, error) {
+func (n *scheduler) Notify() (<-chan runtime.Event, error) {
 	select {
 	case <-n.exit:
 		return nil, errors.New("closed")
@@ -93,7 +87,7 @@ func New(service, version, source string) runtime.Scheduler {
 	n := &scheduler{
 		path:    filepath.Dir(source),
 		exit:    make(chan bool),
-		notify:  make(chan events.Event, 32),
+		notify:  make(chan runtime.Event, 32),
 		update:  make(chan fsnotify.Event, 32),
 		service: service,
 		version: version,
