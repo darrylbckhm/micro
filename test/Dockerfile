@@ -26,8 +26,8 @@ ENV MICRO_REGISTRY=etcd
 
 # Speeding up tests by predownloading and building dependencies for services used.
 COPY . .
-RUN go get github.com/micro/services
-RUN go get github.com/micro/services/helloworld
-RUN bash -c 'for d in test/service/*; do pushd $d && go get && popd; done'
+# RUN go get github.com/micro/services
+# RUN go get github.com/micro/services/helloworld
+# RUN bash -c 'for d in test/service/*; do pushd $d && go get && popd; done'
 COPY ./micro /micro
 ENTRYPOINT ["sh", "/bin/run.sh"]
