@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ func init() {
 	testFilter = []string{
 		"TestRunGithubSource",
 		"TestStore",
+		"TestStoreImpl",
 		"TestCorruptedTokenLogin",
 		"TestRunPrivateSource",
 		"TestEventsStream",
@@ -26,6 +28,7 @@ func init() {
 	isParallel = false // in theory should work in parallel
 	newSrv = newK8sServer
 	retryCount = 1
+	os.Setenv("MICRO_IS_KIND_TEST", "true")
 }
 
 func newK8sServer(t *T, fname string, opts ...Option) Server {
@@ -79,6 +82,7 @@ func (s *testK8sServer) Run() error {
 			!strings.Contains(string(outp), "config") ||
 			!strings.Contains(string(outp), "proxy") ||
 			!strings.Contains(string(outp), "auth") ||
+			!strings.Contains(string(outp), "updater") ||
 			!strings.Contains(string(outp), "store") {
 			return outp, errors.New("Not ready")
 		}
