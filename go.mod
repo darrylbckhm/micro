@@ -41,3 +41,7 @@ require (
 )
 
 replace google.golang.org/grpc => google.golang.org/grpc v1.26.0
+
+replace github.com/micro/micro/v3/profile/ci => ./profile/ci
+
+replace github.com/micro/micro/v3/profile/platforms => ./profile/platforms
